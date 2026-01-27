@@ -7,6 +7,7 @@ import { Header } from "./components/recruiter/Header";
 import { Phase1 } from "./components/recruiter/Phase1";
 import { Phase2 } from "./components/recruiter/Phase2";
 import { LoadingState } from "./components/recruiter/LoadingState";
+import { InterviewRoom } from "./components/interview/InterviewRoom";
 
 export interface RecruiterState {
   jobDescription?: string;
@@ -16,13 +17,14 @@ export interface RecruiterState {
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<1 | 2>(1);
+  const [phase, setPhase] = useState<1 | 2 | 3>(1);
   const [jd, setJd] = useState("");
   const [recruiterState, setRecruiterState] = useState<RecruiterState | null>(null);
 
   const agent = useAgent({
     agent: "chat",
     onStateUpdate: (state) => {
+      console.log("AGENT STATE UPDATE:", state);
       const s = state as RecruiterState;
       setRecruiterState(s);
       if (s.questions?.length > 0 && phase === 1) {
@@ -69,6 +71,51 @@ export default function App() {
     });
   };
 
+  const [isTranscribing, setIsTranscribing] = useState(false);
+
+  const handleInterviewComplete = async (responses: { question: string; audio: Blob }[]) => {
+    setIsTranscribing(true);
+    console.log("Interview Complete! Starting transcription for all answers...");
+    
+    const finalResults: { Question: string; Answer: string }[] = [];
+
+    for (const res of responses) {
+      try {
+        const formData = new FormData();
+        formData.append("file", res.audio);
+
+        const response = await fetch("/transcribe", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) throw new Error("Transcription failed");
+
+        const data = await response.json() as { text: string };
+        finalResults.push({
+          Question: res.question,
+          Answer: data.text
+        });
+
+      } catch (err) {
+        console.error("Transcription failed for question:", res.question, err);
+        finalResults.push({
+          Question: res.question,
+          Answer: "[Error transcribing audio]"
+        });
+      }
+    }
+
+    console.log("\n\n=== 🤖 AI RECRUITER: INTERVIEW SUMMARY ===");
+    console.table(finalResults);
+    console.log("========================================\n\n");
+
+    setIsTranscribing(false);
+    alert("Interview complete! A full report has been printed to the browser console (F12).");
+    setPhase(1);
+    setJd("");
+  };
+
   return (
     <div className="min-h-screen w-full bg-white text-neutral-900 flex flex-col items-center p-8 font-sans transition-colors duration-500">
       <div className="max-w-2xl w-full space-y-12 mt-12">
@@ -77,25 +124,46 @@ export default function App() {
           onReset={handleReset} 
         />
 
-        {phase === 1 ? (
-          <Phase1 
-            jd={jd} 
-            setJd={setJd} 
-            onSubmit={handleGenerateQuestions} 
-            isLoading={isGenerating} 
-          />
+        {isTranscribing ? (
+          <div className="flex flex-col items-center justify-center space-y-6 py-20 animate-in fade-in duration-700">
+            <div className="w-12 h-12 border-2 border-black border-t-transparent rounded-full animate-spin" />
+            <div className="text-center space-y-2">
+              <h2 className="text-2xl font-light">Processing Interview...</h2>
+              <p className="text-neutral-500">Transcribing your technical responses with AI.</p>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-8">
-            {!recruiterState?.questions || recruiterState.questions.length === 0 ? (
-              <LoadingState />
-            ) : (
-              <Phase2 
-                questions={recruiterState.questions} 
-                onBack={() => setPhase(1)} 
-                onStartInterview={() => console.log("Starting interview...")} 
+          <>
+            {phase === 1 && (
+              <Phase1 
+                jd={jd} 
+                setJd={setJd} 
+                onSubmit={handleGenerateQuestions} 
+                isLoading={isGenerating} 
               />
             )}
-          </div>
+
+            {phase === 2 && (
+              <div className="space-y-8">
+                {!recruiterState?.questions || recruiterState.questions.length === 0 ? (
+                  <LoadingState />
+                ) : (
+                  <Phase2 
+                    questions={recruiterState.questions} 
+                    onBack={() => setPhase(1)} 
+                    onStartInterview={() => setPhase(3)} 
+                  />
+                )}
+              </div>
+            )}
+
+            {phase === 3 && recruiterState?.questions && (
+              <InterviewRoom 
+                questions={recruiterState.questions} 
+                onComplete={handleInterviewComplete} 
+              />
+            )}
+          </>
         )}
       </div>
     </div>
