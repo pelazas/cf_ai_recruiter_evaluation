@@ -99,24 +99,50 @@ export async function processToolCalls<Tools extends ToolSet>({
   return processedMessages;
 }
 
-/**
- * Clean up incomplete tool calls from messages before sending to API
- * Prevents API errors from interrupted or failed tool executions
- */
 export function cleanupMessages(messages: UIMessage[]): UIMessage[] {
-  return messages.filter((message) => {
-    if (!message.parts) return true;
-
-    // Filter out messages with incomplete tool calls
-    const hasIncompleteToolCall = message.parts.some((part) => {
-      if (!isStaticToolUIPart(part)) return false;
-      // Remove tool calls that are still streaming or awaiting input without results
-      return (
-        part.state === "input-streaming" ||
-        (part.state === "input-available" && !part.output && !part.errorText)
-      );
+  // 1. Remove ONLY the bad parts, don't nuke the whole message
+  const cleanMessages = messages.map(msg => {
+    if (!msg.parts) return msg;
+    
+    // Keep parts that are NOT incomplete tool calls
+    const validParts = msg.parts.filter(part => {
+      if (!isStaticToolUIPart(part)) return true;
+      // If it's streaming or waiting for input but has no output, it's "incomplete"
+      // But for this specific error, usually we just want to keep valid completed states
+      return part.state !== "input-streaming"; 
     });
 
-    return !hasIncompleteToolCall;
-  });
+    return { ...msg, parts: validParts };
+  }).filter(msg => msg.parts && msg.parts.length > 0); // Remove empty messages
+
+  return cleanMessages;
+}
+
+/**
+ * NEW HELPER: Ensures we don't send a Tool Result without its parent Tool Call
+ * Use this in your server.ts before processToolCalls
+ */
+export function getSafeHistory(messages: UIMessage[], maxMessages = 10): UIMessage[] {
+  if (messages.length <= maxMessages) return messages;
+
+  // Take the last N
+  let slice = messages.slice(-maxMessages);
+
+  // If we sliced in the middle of a tool chain (started with a Tool Result),
+  // we need to look back and grab the Assistant message that requested it.
+  const firstMsg = slice[0];
+  
+  // Check if first message is a tool result (often role='tool' in model messages, 
+  // but in UIMessage check parts)
+  const isToolResult = firstMsg.parts?.some(p => isStaticToolUIPart(p) && p.state === 'output-available');
+
+  if (isToolResult) {
+    const firstMsgIndex = messages.indexOf(firstMsg);
+    if (firstMsgIndex > 0) {
+      // Prepend the parent message
+      slice = [messages[firstMsgIndex - 1], ...slice];
+    }
+  }
+
+  return slice;
 }
