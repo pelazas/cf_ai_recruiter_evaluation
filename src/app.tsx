@@ -8,16 +8,18 @@ import { Phase1 } from "./features/recruiter/Phase1";
 import { Phase2 } from "./features/recruiter/Phase2";
 import { LoadingState } from "./features/recruiter/LoadingState";
 import { InterviewRoom } from "./features/interview/InterviewRoom";
+import { MemoizedMarkdown } from "./components/memoized-markdown";
 
 export interface RecruiterState {
   jobDescription?: string;
   questions: string[];
   currentQuestionIndex: number;
   responses: Record<number, string>;
+  scorecard?: string;
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<1 | 2 | 3>(1);
+  const [phase, setPhase] = useState<1 | 2 | 3 | 4>(1);
   const [jd, setJd] = useState("");
   const [recruiterState, setRecruiterState] = useState<RecruiterState | null>(null);
 
@@ -27,8 +29,13 @@ export default function App() {
       console.log("AGENT STATE UPDATE:", state);
       const s = state as RecruiterState;
       setRecruiterState(s);
+      
+      // Auto-navigation based on state
       if (s.questions?.length > 0 && phase === 1) {
         setPhase(2);
+      }
+      if (s.scorecard && phase !== 4) {
+        setPhase(4);
       }
     }
   });
@@ -110,10 +117,23 @@ export default function App() {
     console.table(finalResults);
     console.log("========================================\n\n");
 
+    // Send the results to the agent for scorecard generation
+    try {
+      await sendMessage({
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: `INTERVIEW_RESULTS: ${JSON.stringify(finalResults)}`
+          }
+        ]
+      });
+    } catch (err) {
+      console.error("Error sending interview results:", err);
+    }
+
     setIsTranscribing(false);
-    alert("Interview complete! A full report has been printed to the browser console (F12).");
-    setPhase(1);
-    setJd("");
+    // Note: setPhase(4) will be handled by onStateUpdate when scorecard arrives
   };
 
   return (
@@ -162,6 +182,30 @@ export default function App() {
                 questions={recruiterState.questions} 
                 onComplete={handleInterviewComplete} 
               />
+            )}
+
+            {phase === 4 && recruiterState?.scorecard && (
+              <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <section className="space-y-4">
+                  <div className="flex items-center gap-2 text-blue-600">
+                    <div className="w-2 h-2 bg-blue-600 rounded-full" />
+                    <h2 className="text-xl font-medium text-neutral-900">Phase 4: Hiring Scorecard</h2>
+                  </div>
+                </section>
+                
+                <div className="p-8 bg-neutral-50 border border-neutral-100 rounded-2xl">
+                  <MemoizedMarkdown content={recruiterState.scorecard} id="final-scorecard" />
+                </div>
+
+                <div className="flex justify-center pt-8">
+                  <button
+                    onClick={handleReset}
+                    className="px-8 py-3 bg-black text-white rounded-full font-medium hover:bg-neutral-800 transition-colors cursor-pointer"
+                  >
+                    Start New Session
+                  </button>
+                </div>
+              </div>
             )}
           </>
         )}
