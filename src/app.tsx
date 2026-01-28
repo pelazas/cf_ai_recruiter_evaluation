@@ -3,11 +3,11 @@ import { useAgent } from "agents/react";
 import { useAgentChat } from "@cloudflare/ai-chat/react";
 import type { UIMessage } from "@ai-sdk/react";
 
-import { Header } from "./components/recruiter/Header";
-import { Phase1 } from "./components/recruiter/Phase1";
-import { Phase2 } from "./components/recruiter/Phase2";
-import { LoadingState } from "./components/recruiter/LoadingState";
-import { InterviewRoom } from "./components/interview/InterviewRoom";
+import { Header } from "./features/recruiter/Header";
+import { Phase1 } from "./features/recruiter/Phase1";
+import { Phase2 } from "./features/recruiter/Phase2";
+import { LoadingState } from "./features/recruiter/LoadingState";
+import { InterviewRoom } from "./features/interview/InterviewRoom";
 
 export interface RecruiterState {
   jobDescription?: string;
@@ -52,7 +52,7 @@ export default function App() {
         parts: [
           {
             type: "text",
-            text: `Analyze this Job Description and generate 5 technical questions, then use the 'save_interview_setup' tool to save them.\n\nJD:\n${jd}`
+            text: `Analyze this Job Description and generate 5 technical questions, then use the 'setup_interview' tool to save them.\n\nJD:\n${jd}`
           }
         ]
       });

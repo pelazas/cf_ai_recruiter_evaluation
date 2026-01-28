@@ -1,140 +1,165 @@
-import { routeAgentRequest } from "agents";
 import { AIChatAgent } from "@cloudflare/ai-chat";
-import {
-  streamText,
-  type StreamTextOnFinishCallback,
-  createUIMessageStream,
-  convertToModelMessages,
+import { routeAgentRequest } from "agents";
+import { 
+  createUIMessageStream, 
   createUIMessageStreamResponse,
-  type ToolSet
+  convertToModelMessages,
+  type StreamTextOnFinishCallback,
 } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
-import { processToolCalls, cleanupMessages, getSafeHistory } from "./utils";
-import { tools, executions } from "./tools";
+import { extractTextFromMessage, parseAIJson } from "./helpers";
 
+// State Definition
 export interface RecruiterState {
   jobDescription?: string;
   questions: string[];
   currentQuestionIndex: number;
-  responses: Record<number, string>;
 }
 
 export class Chat extends AIChatAgent<Env, RecruiterState> {
+  // 1. Init State
   async onInitialize() {
     const stored = await this.ctx.storage.get<RecruiterState>("recruiter_state");
-    if (stored) {
-      this.setState(stored);
-    } else {
-      this.setState({
-        questions: [],
-        currentQuestionIndex: -1,
-        responses: {}
-      });
-    }
+    if (stored) this.setState(stored);
+    else this.setState({ questions: [], currentQuestionIndex: -1 });
   }
 
+  // 2. State Helper
   async saveRecruiterState(state: RecruiterState) {
+    this.setState(state);
     await this.ctx.storage.put("recruiter_state", state);
   }
 
-  async clearInterview() {
-    const freshState: RecruiterState = {
-      questions: [],
-      currentQuestionIndex: -1,
-      responses: {}
-    };
-    this.setState(freshState);
-    await this.ctx.storage.delete("recruiter_state");
-  }
-
+  // 3. Logic: Save Interview Data
   async setupInterview(jobDescription: string, questions: string[]) {
-    const newState = {
+    await this.saveRecruiterState({
       ...this.state,
       jobDescription,
       questions,
       currentQuestionIndex: 0
-    };
-    this.setState(newState);
-    await this.saveRecruiterState(newState);
+    });
   }
 
-  async onChatMessage(
-    onFinish: StreamTextOnFinishCallback<ToolSet>,
-    options?: { abortSignal?: AbortSignal }
-  ) {
-    console.log("Chat onChatMessage started");
-    const currentState = this.state || { questions: [], currentQuestionIndex: -1, responses: {} };
+  // 4. Main Chat Logic
+  async onChatMessage(onFinish: StreamTextOnFinishCallback<any>, options?: { abortSignal?: AbortSignal }) {
     
-    const workersai = createWorkersAI({ binding: this.env.AI });
+    // We use the Native Binding (this.env.AI) directly.
     
-    // CRITICAL FIX: Use Llama 3.1 for stable Tool Calling
-    const model = workersai("@cf/meta/llama-3.1-70b-instruct" as any);
-
-    const allTools = { ...tools };
+    const currentState = this.state || { questions: [], currentQuestionIndex: -1 };
+    
+    // Use the helper from helpers.ts
+    const lastUserMessage = this.messages[this.messages.length - 1];
+    const lastUserText = extractTextFromMessage(lastUserMessage);
+    
+    const isSetupPhase = (currentState.questions?.length || 0) === 0;
+    const looksLikeJD = isSetupPhase && lastUserText.length > 50;
 
     const stream = createUIMessageStream({
       execute: async ({ writer }) => {
         try {
-          console.log("Stream execution started");
-          const basicClean = cleanupMessages(this.messages);
-          const safeMessages = getSafeHistory(basicClean, 12);
-          
-          const processedMessages = await processToolCalls({
-            messages: safeMessages,
-            dataStream: writer,
-            tools: allTools,
-            executions
-          });
+          if (looksLikeJD) {
+            // ============================================================
+            // BYPASS MODE: NATIVE CLOUDFLARE BINDING
+            // ============================================================
+            
+            writer.write({
+              type: "text-delta",
+              delta: "🔍 Analyzing Job Description...",
+              id: "thinking"
+            });
 
-          // If a tool just ran (e.g., clear_interview), we might not need to call the LLM again immediately.
-          // But for the setup flow, we proceed.
-
-          const result = streamText({
-            system: `You are an expert Technical Recruiter API.
-
-      CURRENT STATUS:
-      - Has JD: ${currentState.jobDescription ? "YES" : "NO"}
-      
-      INSTRUCTIONS:
-      1. If the user sends a Job Description (JD), you must analyze it and immediately call the 'setup_interview' tool.
-      2. DO NOT respond with text. Just call the tool.
-      
-      QUESTION GENERATION RULES:
-      - **Quantity:** Exactly 5 questions (3 Technical, 2 Behavioral).
-      - **Time Limit:** Questions must be answerable in 30-60 seconds.
-      - **Content:**
-         - Ignore fluff (mission, location).
-         - Focus on specific tech stacks found in the JD.
-         - 2 Behavioral questions should focus on soft skills found in JD (e.g. ownership).
-      - **Style:**
-         - "What is your experience with [Tech]?"
-         - "Explain the difference between [Concept A] and [Concept B]."
-      
-      IMPORTANT:
-      Use the exact tool name: "setup_interview".`,
-            messages: await convertToModelMessages(processedMessages),
-            model,
-            tools: allTools,
+            // UPDATED PROMPT logic
             // @ts-ignore
-            maxSteps: 5,
-            onFinish: (async (event: any) => {
-              // Detailed logging to catch any future "flakiness"
-              if (event.toolCalls) {
-                console.log("Tool calls detected:", JSON.stringify(event.toolCalls));
-              }
-              if (onFinish) {
-                await (onFinish as any)(event);
-              }
-            }) as unknown as StreamTextOnFinishCallback<typeof allTools>,
-            abortSignal: options?.abortSignal
-          });
+            const response = await this.env.AI.run("@cf/meta/llama-3.1-70b-instruct", {
+              messages: [
+                { 
+                  role: "system", 
+                  content: `You are an expert Technical Recruiter.
+                  
+                  OBJECTIVE: Extract interview questions from the Job Description.
+                  
+                  OUTPUT FORMAT: 
+                  Return ONLY a raw JSON object. Do not include introductory text.
+                  
+                  JSON SCHEMA: 
+                  { "questions": ["Q1", "Q2", "Q3", "Q4", "Q5"] }
+                  
+                  QUESTION GENERATION RULES:
+                  - **Quantity:** Exactly 5 questions (2 Technical, 3 Behavioral).
+                  - **Difficulty:** Easy to Mid-level.
+                  - **Time Limit:** Questions must be answerable in 30-60 seconds.
+                  - **Content:**
+                    - Ignore fluff (mission, location).
+                    - Focus on specific tech stacks found in the JD.
+                    - 3 Behavioral questions should focus on soft skills found in JD (e.g. ownership, hard work, communication).
+                  - **Style:**
+                    - "What is your experience with [Tech]?"
+                    - "Explain the difference between [Concept A] and [Concept B]."` 
+                },
+                { role: "user", content: `Here is the JD: ${lastUserText}` }
+              ]
+            });
 
-          writer.merge(result.toUIMessageStream());
+            const rawText = (response as any).response || "";
+            console.log("[DEBUG] Raw AI JSON:", rawText);
+
+            // Use helper to parse JSON safely
+            const parsed = parseAIJson(rawText);
+            let questions: string[] = [];
+
+            if (parsed && Array.isArray(parsed.questions)) {
+              questions = parsed.questions;
+            } else {
+              // Fallback if AI fails
+              questions = [
+                "Could you briefly describe your experience with the core technologies in this role?",
+                "What is the most challenging bug you have fixed recently?",
+                "Tell me about a time you took ownership of a project.",
+                "How do you handle feedback on your code?",
+                "Describe a situation where you had to communicate complex technical details to a non-technical person."
+              ];
+            }
+
+            // Save State
+            await this.setupInterview(lastUserText, questions);
+
+            // Reply
+            const formatted = questions.map((q, i) => `**${i+1}.** ${q}`).join("\n");
+            writer.write({
+              type: "text-delta",
+              delta: `\n\nI have prepared 5 questions based on the JD:\n\n${formatted}\n\nReady to start?`,
+              id: "response"
+            });
+
+          } else {
+            // ============================================================
+            // NORMAL CHAT MODE
+            // ============================================================
+            
+            const history = await convertToModelMessages(this.messages);
+            
+            // @ts-ignore
+            const response = await this.env.AI.run("@cf/meta/llama-3.1-70b-instruct", {
+              messages: [
+                { role: "system", content: "You are a helpful Recruiter Assistant. Keep answers concise." },
+                ...history
+              ]
+            });
+
+            const reply = (response as any).response || "";
+            
+            writer.write({
+               type: "text-delta",
+               delta: reply,
+               id: "chat-reply"
+            });
+          }
+
         } catch (err: any) {
           console.error("CRITICAL ERROR:", err);
           writer.write({
-            type: "error",
-            errorText: "An internal error occurred."
+            type: "text-delta",
+            delta: `\n\n[System Error]: ${err.message || "Unknown error"}`,
+            id: "error-id"
           });
         }
       }
@@ -145,14 +170,25 @@ export class Chat extends AIChatAgent<Env, RecruiterState> {
 }
 
 export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname === "/check-open-ai-key") return Response.json({ success: true });
 
     if (url.pathname === "/transcribe" && request.method === "POST") {
-        // ... (Keep your existing transcribe logic here)
-        return new Response("Not implemented in snippet", { status: 501 });
+      try {
+        const formData = await request.formData();
+        const file = formData.get("file");
+        if (!file) return new Response("No file", { status: 400 });
+        const blob = await (file as File).arrayBuffer();
+        const response = await env.AI.run("@cf/openai/whisper", { 
+          audio: [...new Uint8Array(blob)] 
+        });
+        return Response.json(response);
+      } catch (e: any) {
+        return new Response(e.message, { status: 500 });
+      }
     }
+
+    if (url.pathname === "/check-open-ai-key") return Response.json({ success: true });
 
     return (await routeAgentRequest(request, env)) || new Response("Not found", { status: 404 });
   }

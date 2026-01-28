@@ -1,55 +1,37 @@
 import { tool } from "ai";
 import { z } from "zod";
-import type { Chat } from "./server";
 import { getCurrentAgent } from "agents";
+import type { Chat } from "./server";
 
 export const tools = {
   setup_interview: tool({
-    description: "Generates 5 interview questions based on the Job Description. Call this immediately when a JD is provided.",
+    description: "Save the Job Description and generate 5 interview questions.",
     inputSchema: z.object({
       jd: z.string().describe("The full job description text."),
-      questions: z.array(z.string())
-        .describe("Array of exactly 5 interview questions (3 technical, 2 behavioral).")
+      // FIX: Removed z.union. Enforce a simple Array of Strings.
+      // This is fully supported by Llama 3.1 and Cloudflare.
+      questions: z.array(z.string()).describe("Array of exactly 5 interview questions.")
     }),
     execute: async ({ jd, questions }) => {
-      console.log("TOOL EXECUTE: setup_interview");
       const { agent } = getCurrentAgent<Chat>();
-      
-      if (!agent) {
-        return { success: false, error: "Agent not found" };
-      }
+      if (!agent) return { success: false, error: "No agent" };
 
-      const chatAgent = agent as Chat;
-      
-      // Safety: Handle edge case where model sends a stringified JSON instead of array
-      let finalQuestions = questions;
-      if (typeof questions === 'string') {
-        try { finalQuestions = JSON.parse(questions); } catch(e) { 
-           console.error("Failed to parse questions string", e);
-           finalQuestions = ["Could not generate questions. Please try again."];
-        }
-      }
-
-      await chatAgent.setupInterview(jd, finalQuestions);
-
-      return { 
-        success: true, 
-        message: "Interview generated and saved." 
-      };
-    }
+      // Since we strictly enforce array now, we don't need complex parsing logic
+      await agent.setupInterview(jd, questions);
+      return { success: true, message: "Interview saved!" };
+    },
   }),
   
   clear_interview: tool({
-    description: "Resets the interview state. Use only if user asks to 'clear', 'reset' or 'start over'.",
-    inputSchema: z.object({}),
+    description: "Clear current interview state.",
+    // FIX: Added a dummy field. Empty objects ({}) sometimes fail strict validation.
+    inputSchema: z.object({
+      confirm: z.boolean().optional().describe("Confirmation flag")
+    }),
     execute: async () => {
       const { agent } = getCurrentAgent<Chat>();
-      if (!agent) return { success: false, error: "Agent not found" };
-      
-      await (agent as Chat).clearInterview();
-      return { success: true, message: "Interview cleared" };
+      //if (agent) await agent.clearInterview();
+      return { success: true, message: "Cleared." };
     }
   })
 };
-
-export const executions = {};

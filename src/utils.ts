@@ -104,12 +104,22 @@ export function cleanupMessages(messages: UIMessage[]): UIMessage[] {
   const cleanMessages = messages.map(msg => {
     if (!msg.parts) return msg;
     
-    // Keep parts that are NOT incomplete tool calls
+    // Keep parts that are NOT incomplete or failed tool calls
     const validParts = msg.parts.filter(part => {
+      // Keep everything that isn't a tool part
+      if (part.type === 'text') return true;
       if (!isStaticToolUIPart(part)) return true;
-      // If it's streaming or waiting for input but has no output, it's "incomplete"
-      // But for this specific error, usually we just want to keep valid completed states
-      return part.state !== "input-streaming"; 
+
+      // Filter out incomplete streaming
+      if (part.state === "input-streaming") return false;
+
+      // Filter out INVALID or ERROR tool calls/results
+      // Logically, if a tool call failed, we don't want to show the model it failed
+      // especially if it's a "No Such Tool" error, as it will just keep trying it.
+      if ('invalid' in part && part.invalid) return false;
+      if ('error' in part && part.error) return false;
+
+      return true;
     });
 
     return { ...msg, parts: validParts };
