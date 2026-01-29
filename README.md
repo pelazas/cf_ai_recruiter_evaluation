@@ -5,6 +5,7 @@ An automated technical screening tool built on Cloudflare Workers and Durable Ob
 
 ## Demo
 [![Watch the Demo](./thumbnail.jpg)](https://youtu.be/pWqpyRgtyMs?si=gw-aUnGzPmfJdZ6d)
+[Watch the demo on YouTube](https://youtu.be/pWqpyRgtyMs?si=gw-aUnGzPmfJdZ6d)
 
 ## Workflow
 
