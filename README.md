@@ -1,6 +1,6 @@
 # AI Recruiter Evaluation
 
-An automated technical screening tool built on Cloudflare Workers and Durable Objects. It uses Llama 3.1 to analyze job descriptions, conduct voice interviews, and generate candidate scorecards.
+An automated technical screening tool built on Cloudflare Workers and Durable Objects. It uses Llama 3.1 to analyze job descriptions, and generate candidate scorecards and openai whisper to transcribe interview recordings to text.
 
 ## Workflow
 
@@ -11,10 +11,10 @@ An automated technical screening tool built on Cloudflare Workers and Durable Ob
 
 ## Tech Stack
 
-- **Frontend**: React 19, Vite, Tailwind CSS 4
+- **Frontend**: React + tailwind
 - **Backend**: Cloudflare Workers & Durable Objects
 - **AI Models**: Llama 3.1 (text) and Whisper (speech-to-text) via Cloudflare Workers AI
-- **SDKs**: @cloudflare/ai-chat, AI SDK (Vercel)
+- **SDKs**: @cloudflare/ai-chat
 
 ## Project Structure
 
@@ -26,5 +26,4 @@ An automated technical screening tool built on Cloudflare Workers and Durable Ob
 
 1. **Install dependencies**: `npm install`
 2. **set up variables in.dev.vars**: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
-2. **Run locally**: `npm run dev`
-3. **Deploy to Cloudflare**: `npm run deploy`
+2. **Run locally**: `npm run start`
