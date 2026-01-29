@@ -4,8 +4,8 @@ Cloudflare Software Engineer Intern Summer 2026 - Optional assignment
 An automated technical screening tool built on Cloudflare Workers and Durable Objects. It uses Llama 3.1 to analyze job descriptions, and generate candidate scorecards and openai whisper to transcribe interview recordings to text.
 
 ## Demo
-[![Watch the Demo](./thumbnail.jpg)](https://youtu.be/pWqpyRgtyMs?si=gw-aUnGzPmfJdZ6d)
-[Watch the demo on YouTube](https://youtu.be/pWqpyRgtyMs?si=gw-aUnGzPmfJdZ6d)
+[![Watch the Demo](./thumbnail.jpg)](https://youtu.be/_j2AWGnJSPM?si=9_TX7P_j38hiTG9U)
+[Watch the demo on YouTube](https://youtu.be/_j2AWGnJSPM?si=9_TX7P_j38hiTG9U)
 
 ## Workflow
 
